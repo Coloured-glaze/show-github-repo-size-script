@@ -3,7 +3,7 @@
 // @namespace   Violentmonkey Scripts
 // @match       https://github.com/*
 // @grant       none
-// @version     0.0.4
+// @version     0.0.5
 // @author      bling-yshs
 // @description 一个简单的油猴脚本，可以显示当前 Github 仓库的大小（暂不支持私人仓库）
 // @icon         https://github.githubassets.com/pinned-octocat.svg
@@ -15,27 +15,108 @@
 
 // 开源地址：https://github.com/bling-yshs/show-github-repo-size-script，欢迎反馈
 
+let currentRepoSize = 0;
+
 async function main() {
+  if (!window.location.href.match(/github\.com\/[^\/]+\/[^\/]+/)) {
+    console.log('不在仓库页面，跳过执行');
+    return;
+  }
+  
+  console.log('开始等待导航栏元素...');
+  await waitForElement('ul.prc-components-UnderlineItemList-xKlKC');
+  
   const repoSize = await getRepoSize();
   if (repoSize === 0) {
     return;
   }
-  // 并且保留两位小数
-  const mbSize = (repoSize / 1024).toFixed(2);
-  // 获取class为"UnderlineNav-body list-style-none"的ul元素
-  const ul = document.querySelector('ul.UnderlineNav-body.list-style-none');
-  // 定义要添加的HTML文本
-  const liHtml = `<li data-view-component="true" class="d-inline-flex">
-  <a id="settings-tab" data-tab-item="i8settings-tab" data-selected-links="code_review_limits codespaces_repository_settings collaborators custom_tabs hooks integration_installations interaction_limits issue_template_editor key_links_settings notifications repo_announcements repo_branch_settings repo_keys_settings repo_pages_settings repo_rule_insights repo_rulesets repo_rules_bypass_requests repo_protected_tags_settings repo_settings reported_content repo_custom_properties repository_actions_settings repository_actions_settings_add_new_runner repository_actions_settings_general repository_actions_settings_runners repository_actions_settings_runner_details repository_environments role_details secrets secrets_settings_actions secrets_settings_codespaces secrets_settings_dependabot security_analysis security_products /bling-yshs/Actions-ImmortalWrt/settings" data-pjax="#repo-content-pjax-container" data-turbo-frame="repo-content-turbo-frame" data-analytics-event="{&quot;category&quot;:&quot;Underline navbar&quot;,&quot;action&quot;:&quot;Click tab&quot;,&quot;label&quot;:&quot;Settings&quot;,&quot;target&quot;:&quot;UNDERLINE_NAV.TAB&quot;}" data-view-component="true" class="UnderlineNav-item no-wrap js-responsive-underlinenav-item js-selected-navigation-item">
+  currentRepoSize = repoSize;
   
-<svg t="1713967465043" class="octicon octicon-graph UnderlineNav-octicon d-none d-sm-inline" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="23658" width="16" height="16"><path d="M511.850044 0.299912C229.332813 0.299912 0.299912 107.568486 0 239.929708v544.140584c0 132.461193 229.132871 239.929708 511.850044 239.929708s511.850044-107.468515 511.850044-239.929708V239.929708C1023.400176 107.568486 794.367275 0.299912 511.850044 0.299912zM167.950796 895.737577c-22.093527 0-39.988285-17.894757-39.988285-39.988285s17.894757-39.988285 39.988285-39.988284 39.988285 17.894757 39.988284 39.988284-17.894757 39.988285-39.988284 39.988285z m791.768036-188.644733c-17.894757 11.496632-37.489017 22.193498-58.782778 32.190569-104.969247 49.18559-243.228742 76.277653-389.08601 76.277653s-284.116763-27.092063-389.08601-76.277653c-21.293762-9.997071-40.888021-20.693937-58.782779-32.190569v-79.176804c87.274431 73.778385 255.125256 123.66377 447.868789 123.663771s360.594357-49.885385 447.868788-123.663771v79.176804zM127.962511 583.828956c0-22.093527 17.894757-39.988285 39.988285-39.988284s39.988285 17.894757 39.988284 39.988284-17.894757 39.988285-39.988284 39.988285-39.988285-17.894757-39.988285-39.988285z m831.756321-148.156594c-17.894757 11.496632-37.489017 22.193498-58.782778 32.190569-104.969247 49.18559-243.228742 76.277653-389.08601 76.277653S227.733281 517.048521 122.764034 467.862931c-21.293762-9.997071-40.888021-20.693937-58.782779-32.190569v-79.176804c87.274431 73.778385 255.125256 123.66377 447.868789 123.66377s360.594357-49.885385 447.868788-123.66377v79.176804z" p-id="23659" fill="#636c76"></path></svg>
-        <span data-content="Settings">${mbSize}MB</span>
-          <span id="settings-repo-tab-count" data-pjax-replace="" data-turbo-replace="" title="Not available" data-view-component="true" class="Counter"></span>
-</a></li>`;
+  addSizeDisplay();
+  observeChanges();
+}
+
+function addSizeDisplay() {
+  const mbSize = (currentRepoSize / 1024).toFixed(2);
   
-  // 直接将HTML文本添加到ul的末尾
+  let ul = document.querySelector('ul.prc-components-UnderlineItemList-xKlKC');
+  
+  if (!ul) {
+    console.log('尝试备用选择器...');
+    ul = document.querySelector('ul.UnderlineNav-body');
+  }
+  
+  if (!ul) {
+    console.log('未找到导航栏元素，可能不在仓库页面');
+    console.log('当前 URL:', window.location.href);
+    return;
+  }
+  
+  const existingSizeItem = document.querySelector('li[data-repo-size="true"]');
+  if (existingSizeItem) {
+    console.log('大小显示已存在，跳过添加');
+    return;
+  }
+  
+  console.log('找到导航栏元素，准备添加大小显示');
+  
+  const liHtml = `<li class="prc-UnderlineNav-UnderlineNavItem-syRjR" data-repo-size="true">
+  <a href="#" class="prc-components-UnderlineItem-7fP-n">
+    <span data-component="icon">
+      <svg aria-hidden="true" focusable="false" class="octicon octicon-database" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" display="inline-block" overflow="visible" style="vertical-align:text-bottom">
+        <path d="M8 1c2.2 0 4.1.6 5.4 1.6C14.7 3.6 15.5 4.8 15.5 6s-.8 2.4-2.1 3.4C12.1 10.4 10.2 11 8 11s-4.1-.6-5.4-1.6C1.3 8.4.5 7.2.5 6s.8-2.4 2.1-3.4C3.9 1.6 5.8 1 8 1ZM1.5 6c0 .8.6 1.6 1.7 2.3C4.4 9.2 6.1 9.7 8 9.7s3.6-.5 4.8-1.4c1.1-.7 1.7-1.5 1.7-2.3s-.6-1.6-1.7-2.3C11.6 2.8 9.9 2.3 8 2.3s-3.6.5-4.8 1.4C2.1 4.4 1.5 5.2 1.5 6Zm0 4v3c0 .8.6 1.6 1.7 2.3 1.2.9 2.9 1.4 4.8 1.4s3.6-.5 4.8-1.4c1.1-.7 1.7-1.5 1.7-2.3v-3c-.6.6-1.4 1.1-2.3 1.5-1.5.6-3.3 1-5.2 1s-3.7-.4-5.2-1C2.9 11.1 2.1 10.6 1.5 10Zm0 4v3c0 .8.6 1.6 1.7 2.3 1.2.9 2.9 1.4 4.8 1.4s3.6-.5 4.8-1.4c1.1-.7 1.7-1.5 1.7-2.3v-3c-.6.6-1.4 1.1-2.3 1.5-1.5.6-3.3 1-5.2 1s-3.7-.4-5.2-1C2.9 15.1 2.1 14.6 1.5 14Z"></path>
+      </svg>
+    </span>
+    <span data-component="text" data-content="Size">${mbSize}MB</span>
+  </a>
+</li>`;
+  
   ul.insertAdjacentHTML('beforeend', liHtml);
+  console.log('仓库大小显示已添加');
+}
+
+function observeChanges() {
+  const observer = new MutationObserver((mutations) => {
+    const existingSizeItem = document.querySelector('li[data-repo-size="true"]');
+    if (!existingSizeItem && currentRepoSize > 0) {
+      console.log('检测到导航栏更新，重新添加大小显示');
+      addSizeDisplay();
+    }
+  });
   
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true
+  });
+}
+
+function waitForElement(selector, timeout = 5000) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(selector)) {
+      console.log(`元素已存在: ${selector}`);
+      return resolve();
+    }
+    
+    console.log(`等待元素出现: ${selector}`);
+    const observer = new MutationObserver(() => {
+      if (document.querySelector(selector)) {
+        console.log(`元素已找到: ${selector}`);
+        observer.disconnect();
+        resolve();
+      }
+    });
+    
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+    
+    setTimeout(() => {
+      observer.disconnect();
+      console.log(`等待超时: ${selector}`);
+      resolve();
+    }, timeout);
+  });
 }
 
 
@@ -57,6 +138,7 @@ async function getRepoSize() {
   let response;
   response = await fetch(`https://api.github.com/repos/${usernameAndRepo}`);
   let data = await response.json();
+  console.log(data);
   let size = data.size;
   if (!size) {
     return 0;
